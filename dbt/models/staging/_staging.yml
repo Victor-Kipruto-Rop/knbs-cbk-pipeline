@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: stg_economic_indicators
+    description: 1:1 typed/renamed mirror of staging.economic_indicators.
+    columns:
+      - name: id
+        tests: [unique, not_null]
+      - name: indicator_code
+        tests: [not_null]
+      - name: period_date
+        tests: [not_null]
+      - name: value
+        tests: [not_null]
+      - name: source_id
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["cbk_fx_rates", "cbk_key_rates", "knbs_cpi", "knbs_gdp_quarterly"]

@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: dim_time
+    description: Date dimension generated from observed period_dates.
+    columns:
+      - name: date_day
+        tests: [unique, not_null]
+
+  - name: dim_indicator
+    description: One row per distinct indicator, with a coarse category grouping.
+    columns:
+      - name: indicator_code
+        tests: [unique, not_null]
+      - name: indicator_category
+        tests:
+          - accepted_values:
+              values: ["exchange_rate", "policy_rate", "price_index", "inflation", "output", "other"]
+
+  - name: fct_economic_indicators
+    description: >
+      Central fact table — one row per (indicator_code, period_date,
+      source_id) observation across every KNBS/CBK source.
+    columns:
+      - name: indicator_period_key
+        tests: [unique, not_null]
+      - name: indicator_code
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_indicator')
+              field: indicator_code
+      - name: period_date
+        tests: [not_null]
+      - name: value
+        tests: [not_null]

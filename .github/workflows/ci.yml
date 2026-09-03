@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: kcp
+          POSTGRES_PASSWORD: kcp
+          POSTGRES_DB: kcp
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      KCP_DB_HOST: localhost
+      KCP_DB_PORT: 5432
+      KCP_DB_USER: kcp
+      KCP_DB_PASSWORD: kcp
+      KCP_DB_NAME: kcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install dbt-core dbt-postgres
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5432 -U kcp; do sleep 1; done
+        env:
+          PGPASSWORD: ${{ secrets.PGPASSWORD || 'kcp' }}
+      - name: Create DB indexes
+        run: psql -h localhost -p 5432 -U kcp -d kcp -f scripts/create_indexes.sql
+        env:
+          PGPASSWORD: kcp
+      - name: Run tests
+        run: pytest -q
+      - name: Run dbt
+        working-directory: dbt
+        run: |
+          pip install dbt-core dbt-postgres
+          dbt deps
+          dbt run --profiles-dir .
+          dbt test --profiles-dir .

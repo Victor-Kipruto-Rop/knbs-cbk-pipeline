@@ -1,0 +1,24 @@
+name: "knbs_cbk_pipeline"
+version: "1.0.0"
+config-version: 2
+
+profile: "knbs_cbk_pipeline"
+
+model-paths: ["models"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  knbs_cbk_pipeline:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: ephemeral
+    marts:
+      +materialized: table
+      +schema: marts

@@ -1,0 +1,21 @@
+knbs_cbk_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('KCP_DB_HOST', 'localhost') }}"
+      port: "{{ env_var('KCP_DB_PORT', '5432') | int }}"
+      user: "{{ env_var('KCP_DB_USER', 'kcp') }}"
+      password: "{{ env_var('KCP_DB_PASSWORD', 'kcp') }}"
+      dbname: "{{ env_var('KCP_DB_NAME', 'kcp') }}"
+      schema: marts
+      threads: 4
+    prod:
+      type: postgres
+      host: "{{ env_var('KCP_DB_HOST') }}"
+      port: "{{ env_var('KCP_DB_PORT', '5432') | int }}"
+      user: "{{ env_var('KCP_DB_USER') }}"
+      password: "{{ env_var('KCP_DB_PASSWORD') }}"
+      dbname: "{{ env_var('KCP_DB_NAME') }}"
+      schema: marts
+      threads: 8

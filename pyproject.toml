@@ -1,0 +1,43 @@
+[project]
+name = "knbs-cbk-pipeline"
+version = "0.1.0"
+description = "Open data pipeline for KNBS and CBK economic indicators"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pandas>=2.2",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "pyyaml>=6.0",
+    "tenacity>=8.2",
+    "structlog>=24.1",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.2",
+    "openpyxl>=3.1",
+    "apache-airflow>=2.9; extra == 'orchestration'",
+    "fastapi>=0.110; extra == 'api'",
+    "uvicorn>=0.29; extra == 'api'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+    "respx>=0.21",
+    "ruff>=0.4",
+]
+orchestration = ["apache-airflow>=2.9"]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

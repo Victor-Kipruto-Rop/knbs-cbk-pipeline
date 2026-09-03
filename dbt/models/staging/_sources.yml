@@ -1,0 +1,28 @@
+version: 2
+
+sources:
+  - name: staging
+    schema: staging
+    tables:
+      - name: economic_indicators
+        description: >
+          Raw-but-tidy landing table, written by
+          warehouse/loaders/postgres_loader.py — one row per
+          (indicator_code, period_date, source_id), idempotently upserted
+          on every pipeline run.
+        loaded_at_field: ingested_at
+        freshness:
+          warn_after: {count: 36, period: hour}
+          error_after: {count: 72, period: hour}
+        columns:
+          - name: id
+            description: Deterministic hash of the natural key.
+            tests: [unique, not_null]
+          - name: indicator_code
+            tests: [not_null]
+          - name: period_date
+            tests: [not_null]
+          - name: value
+            tests: [not_null]
+          - name: source_id
+            tests: [not_null]
