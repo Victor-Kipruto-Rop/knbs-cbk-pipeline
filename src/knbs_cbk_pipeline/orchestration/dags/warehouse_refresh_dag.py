@@ -1,50 +1,40 @@
-"""
-Refreshes the dbt-built marts. Runs daily after the CBK DAG's typical
-completion time; the KNBS DAG's monthly load will simply be picked up by
-the next daily refresh rather than needing its own dbt trigger — marts are
-build-from-staging, so an extra dbt run when nothing new landed is cheap
-and safe (dbt only rebuilds what changed).
-"""
+"""Daily dbt refresh after source ingestion DAGs have landed new observations."""
 from __future__ import annotations
-
 import datetime as dt
-
 from airflow.decorators import dag, task
 from airflow.operators.bash import BashOperator
+from airflow.utils.trigger_rule import TriggerRule
 
-default_args = {
-    "owner": "data-eng",
-    "retries": 2,
-    "retry_delay": dt.timedelta(minutes=10),
-}
-
+default_args = {"owner": "data-eng", "retries": 2, "retry_delay": dt.timedelta(minutes=10)}
 
 @dag(
     dag_id="warehouse_refresh",
-    schedule="0 8 * * *",  # 08:00 daily, after cbk_daily_ingestion's 06:00 run
+    schedule="0 8 * * *",
     start_date=dt.datetime(2026, 1, 1),
     catchup=False,
     default_args=default_args,
     tags=["knbs-cbk-pipeline", "dbt", "daily"],
 )
 def warehouse_refresh():
-    dbt_run = BashOperator(
-        task_id="dbt_run",
-        bash_command="cd /opt/pipeline/dbt && dbt run --profiles-dir .",
+    dbt_build = BashOperator(
+        task_id="dbt_build",
+        bash_command="cd /opt/airflow/project/dbt && dbt deps && dbt build --profiles-dir .",
     )
 
-    dbt_test = BashOperator(
-        task_id="dbt_test",
-        bash_command="cd /opt/pipeline/dbt && dbt test --profiles-dir .",
-    )
+    @task(trigger_rule=TriggerRule.ALL_DONE)
+    def alert_on_refresh_failure(**context) -> None:
+        dag_run = context["dag_run"]
+        failed = [
+            task_instance.task_id
+            for task_instance in dag_run.get_task_instances()
+            if task_instance.task_id != "alert_on_refresh_failure"
+            and task_instance.state == "failed"
+        ]
+        if failed:
+            from knbs_cbk_pipeline.observability.alerts import send_alert
+            send_alert(f"KNBS/CBK dbt refresh failed: {', '.join(failed)}")
 
-    @task
-    def alert_on_test_failure() -> None:
-        # Placeholder hook: wire to observability/alerts.py if dbt test
-        # failures should page the same channel as pipeline run failures.
-        pass
-
-    dbt_run >> dbt_test >> alert_on_test_failure()
-
+    alert_task = alert_on_refresh_failure()
+    dbt_build >> alert_task
 
 warehouse_refresh()
