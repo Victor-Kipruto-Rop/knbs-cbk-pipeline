@@ -17,7 +17,6 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
-
   redis:
     image: redis:7-alpine
     container_name: kcp_redis
@@ -32,7 +31,6 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
-
   pipeline:
     profiles: ["pipeline"]
     build: .
@@ -50,11 +48,14 @@ services:
       KCP_DB_USER: kcp
       KCP_DB_PASSWORD: kcp
       KCP_DB_NAME: kcp
+      KCP_SOURCES_CONFIG_PATH: /app/config/sources.yaml
+      KCP_RAW_DATA_DIR: /app/data/raw
+      KCP_STAGING_DATA_DIR: /app/data/staging
+      KCP_CURATED_DATA_DIR: /app/data/curated
     volumes:
       - ./data:/app/data
     command: ["python", "-m", "knbs_cbk_pipeline.pipeline"]
     restart: "no"
-
   airflow:
     profiles: ["orchestration"]
     build:
@@ -79,6 +80,10 @@ services:
       KCP_DB_USER: kcp
       KCP_DB_PASSWORD: kcp
       KCP_DB_NAME: kcp
+      KCP_SOURCES_CONFIG_PATH: /opt/airflow/project/config/sources.yaml
+      KCP_RAW_DATA_DIR: /opt/airflow/data/raw
+      KCP_STAGING_DATA_DIR: /opt/airflow/data/staging
+      KCP_CURATED_DATA_DIR: /opt/airflow/data/curated
     ports:
       - "8080:8080"
     volumes:
@@ -86,7 +91,6 @@ services:
       - ./data:/opt/airflow/data
     command: ["airflow", "standalone"]
     restart: unless-stopped
-
 volumes:
   kcp_pgdata:
   kcp_redisdata:

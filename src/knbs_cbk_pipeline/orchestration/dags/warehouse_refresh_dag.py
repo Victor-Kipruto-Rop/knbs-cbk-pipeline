@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from airflow.decorators import dag, task
 from airflow.operators.bash import BashOperator
+from airflow.operators.python import get_current_context
 from airflow.utils.trigger_rule import TriggerRule
 
 default_args = {"owner": "data-eng", "retries": 2, "retry_delay": dt.timedelta(minutes=10)}
@@ -22,7 +23,8 @@ def warehouse_refresh():
     )
 
     @task(trigger_rule=TriggerRule.ALL_DONE)
-    def alert_on_refresh_failure(**context) -> None:
+    def alert_on_refresh_failure() -> None:
+        context = get_current_context()
         dag_run = context["dag_run"]
         failed = [
             task_instance.task_id
