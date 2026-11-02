@@ -1,17 +1,11 @@
 FROM python:3.12-slim
-
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev gcc \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY pyproject.toml .
-COPY src/ ./src/
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev curl && rm -rf /var/lib/apt/lists/*
+COPY pyproject.toml README.md ./
 COPY config/ ./config/
-
-RUN pip install --no-cache-dir -e .
-
+COPY src/ ./src/
+COPY dbt/ ./dbt/
+RUN python -m pip install --upgrade pip && pip install ".[dev,analytics,api]"
 ENV PYTHONPATH=/app:/app/src
-
-CMD ["python", "-m", "knbs_cbk_pipeline.ingestion.runner"]
+CMD ["python", "-m", "knbs_cbk_pipeline.pipeline"]

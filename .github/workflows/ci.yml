@@ -46,7 +46,7 @@ jobs:
       - name: Install project
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,analytics]"
+          pip install -e ".[dev,analytics,api]"
       - name: Lint
         run: ruff check .
       - name: Unit and integration tests

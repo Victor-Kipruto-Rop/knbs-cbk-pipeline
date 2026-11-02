@@ -9,8 +9,9 @@ A reproducible data engineering project that ingests Kenyan macroeconomic indica
 - Python 3.12: extraction, raw artifact storage, validation and warehouse loading.
 - dbt Core + dbt-postgres: analytical models and tests.
 - Apache Airflow 2.10: optional local orchestration profile.
+- FastAPI: optional query API profile.
 
-The default Compose profile starts only stateful dependencies. Pipeline and Airflow are opt-in so developers can test each layer without accidentally triggering live source downloads.
+The default Compose profile starts only stateful dependencies. Pipeline, API and Airflow are opt-in so developers can test each layer without accidentally triggering live source downloads.
 
 ## Quick start (PowerShell)
 
@@ -23,11 +24,16 @@ Install locally:
     py -3.12 -m venv .venv
     .\.venv\Scripts\Activate.ps1
     python -m pip install --upgrade pip
-    pip install -e ".[dev,analytics]"
+    pip install -e ".[dev,analytics,api]"
 
 Run the complete one-shot pipeline in Docker:
 
     docker compose --profile pipeline run --rm pipeline
+
+Run the query API:
+
+    docker compose --profile api up -d --build api
+    Invoke-RestMethod http://localhost:8000/health
 
 Or run stages locally:
 
@@ -43,7 +49,7 @@ Or run stages locally:
     docker compose --profile orchestration up -d --build airflow
     docker compose logs -f airflow
 
-Open http://localhost:8080. Airflow standalone creates a local admin account and prints its generated credentials in container logs. Change the password before sharing the environment. Airflow metadata is isolated in PostgreSQL database airflow; economic data remains in database kcp.
+Open http://localhost:8080. Airflow standalone creates a local admin account and prints its generated credentials in container logs. Change the password before sharing the environment. Airflow metadata is isolated in PostgreSQL database airflow; economic data remains in database kcp. The airflow-db-init helper also creates the metadata database when reusing an existing PostgreSQL volume.
 
 The Airflow image includes the project, dbt project and analytics dependencies. It loads the daily CBK DAG, monthly CPI DAG, quarterly GDP DAG and daily warehouse refresh DAG.
 
@@ -53,12 +59,14 @@ The Airflow image includes the project, dbt project and analytics dependencies. 
 - Container PostgreSQL: postgres:5432
 - Host Redis: localhost:6379
 - Container Redis: redis:6379
+- API: localhost:8000
+- Airflow: localhost:8080
 
 Example credentials are for local development only. Override them before exposing any service beyond localhost. Never commit .env.
 
 ## Data flow
 
-KNBS / CBK → immutable raw artifacts + sidecars → source-specific cleaners → schema validation → standardized observations → PostgreSQL staging + revision history → dbt staging / dimensions / fact → analytics.
+KNBS / CBK → immutable raw artifacts + sidecars → source-specific cleaners → schema validation → standardized observations → PostgreSQL staging + revision history → dbt staging / dimensions / fact → analytics and API.
 
 Every raw artifact has a metadata sidecar with its source URL, fetch timestamp, content type, byte count and SHA-256 checksum. Transformations use the sidecar timestamp rather than filesystem modification time. KNBS landing pages are resolved to downloadable files and file signatures are checked before raw landing.
 
