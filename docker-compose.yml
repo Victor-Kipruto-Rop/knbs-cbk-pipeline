@@ -3,20 +3,32 @@ services:
     image: postgres:16
     container_name: kcp_postgres
     environment:
-      POSTGRES_USER: kcp
-      POSTGRES_PASSWORD: kcp
-      POSTGRES_DB: kcp
+      POSTGRES_USER: ${KCP_DB_USER:-kcp}
+      POSTGRES_PASSWORD: ${KCP_DB_PASSWORD:-kcp}
+      POSTGRES_DB: ${KCP_DB_NAME:-kcp}
     ports:
       - "${KCP_HOST_DB_PORT:-5433}:5432"
     volumes:
       - kcp_pgdata:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kcp -d kcp"]
+      test: ["CMD-SHELL", "pg_isready -U ${KCP_DB_USER:-kcp} -d ${KCP_DB_NAME:-kcp}"]
       interval: 5s
       timeout: 5s
       retries: 20
     restart: unless-stopped
+
+  db-bootstrap:
+    image: postgres:16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${KCP_DB_PASSWORD:-kcp}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "psql -h postgres -U ${KCP_DB_USER:-kcp} -d ${KCP_DB_NAME:-kcp} -v ON_ERROR_STOP=1 -c \"CREATE SCHEMA IF NOT EXISTS staging; CREATE SCHEMA IF NOT EXISTS marts; ALTER ROLE ${KCP_DB_USER:-kcp} SET search_path TO staging,marts,public;\""
+    restart: "no"
 
   redis:
     image: redis:7-alpine
@@ -42,14 +54,16 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     environment:
-      KCP_DATABASE_URL: postgresql+psycopg2://kcp:kcp@postgres:5432/kcp
+      KCP_DATABASE_URL: postgresql+psycopg2://${KCP_DB_USER:-kcp}:${KCP_DB_PASSWORD:-kcp}@postgres:5432/${KCP_DB_NAME:-kcp}
       KCP_REDIS_URL: redis://redis:6379/0
       KCP_DB_HOST: postgres
       KCP_DB_PORT: 5432
-      KCP_DB_USER: kcp
-      KCP_DB_PASSWORD: kcp
-      KCP_DB_NAME: kcp
+      KCP_DB_USER: ${KCP_DB_USER:-kcp}
+      KCP_DB_PASSWORD: ${KCP_DB_PASSWORD:-kcp}
+      KCP_DB_NAME: ${KCP_DB_NAME:-kcp}
       KCP_SOURCES_CONFIG_PATH: /app/config/sources.yaml
       KCP_RAW_DATA_DIR: /app/data/raw
       KCP_STAGING_DATA_DIR: /app/data/staging
@@ -68,8 +82,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     environment:
-      KCP_DATABASE_URL: postgresql+psycopg2://kcp:kcp@postgres:5432/kcp
+      KCP_DATABASE_URL: postgresql+psycopg2://${KCP_DB_USER:-kcp}:${KCP_DB_PASSWORD:-kcp}@postgres:5432/${KCP_DB_NAME:-kcp}
       KCP_REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
@@ -85,13 +101,13 @@ services:
     profiles: ["orchestration"]
     image: postgres:16
     depends_on:
-      postgres:
-        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     environment:
-      PGPASSWORD: kcp
+      PGPASSWORD: ${KCP_DB_PASSWORD:-kcp}
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - "psql -h postgres -U kcp -d kcp -tAc \"SELECT 1 FROM pg_database WHERE datname='airflow'\" | grep -q 1 || createdb -h postgres -U kcp -O kcp airflow"
+      - "psql -h postgres -U ${KCP_DB_USER:-kcp} -d ${KCP_DB_NAME:-kcp} -tAc \"SELECT 1 FROM pg_database WHERE datname='airflow'\" | grep -q 1 || createdb -h postgres -U ${KCP_DB_USER:-kcp} -O ${KCP_DB_USER:-kcp} airflow"
 
   airflow:
     profiles: ["orchestration"]
@@ -104,21 +120,23 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
       airflow-db-init:
         condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
-      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://kcp:kcp@postgres:5432/airflow
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${KCP_DB_USER:-kcp}:${KCP_DB_PASSWORD:-kcp}@postgres:5432/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "False"
       AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
-      KCP_DATABASE_URL: postgresql+psycopg2://kcp:kcp@postgres:5432/kcp
+      KCP_DATABASE_URL: postgresql+psycopg2://${KCP_DB_USER:-kcp}:${KCP_DB_PASSWORD:-kcp}@postgres:5432/${KCP_DB_NAME:-kcp}
       KCP_REDIS_URL: redis://redis:6379/0
       KCP_DB_HOST: postgres
       KCP_DB_PORT: 5432
-      KCP_DB_USER: kcp
-      KCP_DB_PASSWORD: kcp
-      KCP_DB_NAME: kcp
+      KCP_DB_USER: ${KCP_DB_USER:-kcp}
+      KCP_DB_PASSWORD: ${KCP_DB_PASSWORD:-kcp}
+      KCP_DB_NAME: ${KCP_DB_NAME:-kcp}
       KCP_SOURCES_CONFIG_PATH: /opt/airflow/project/config/sources.yaml
       KCP_RAW_DATA_DIR: /opt/airflow/data/raw
       KCP_STAGING_DATA_DIR: /opt/airflow/data/staging

@@ -11,13 +11,15 @@ A reproducible data engineering project that ingests Kenyan macroeconomic indica
 - Apache Airflow 2.10: optional local orchestration profile.
 - FastAPI: optional query API profile.
 
-The default Compose profile starts only stateful dependencies. Pipeline, API and Airflow are opt-in so developers can test each layer without accidentally triggering live source downloads.
+The default Compose profile starts PostgreSQL, Redis and a repeatable database-bootstrap job. Pipeline, API and Airflow are opt-in so developers can test each layer without accidentally triggering live source downloads.
 
 ## Quick start (PowerShell)
 
     Copy-Item .env.example .env
-    docker compose up -d postgres redis
+    docker compose up -d
     docker compose ps
+
+The db-bootstrap service applies schemas and the PostgreSQL search path on every Compose startup, including when reusing an existing data volume.
 
 Install locally:
 
