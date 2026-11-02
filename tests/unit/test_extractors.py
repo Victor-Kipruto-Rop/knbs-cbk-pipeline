@@ -80,7 +80,7 @@ def test_knbs_extractor_downloads_file():
     respx.get("https://www.knbs.or.ke/download/consumer-price-index-cpi/").mock(
         return_value=httpx.Response(
             200,
-            content=b"fake-xlsx-bytes",
+            content=b"PK\\x03\\x04fake-xlsx-bytes",
             headers={
                 "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             },
@@ -91,7 +91,7 @@ def test_knbs_extractor_downloads_file():
         result = extractor.fetch(KNBS_CPI_SOURCE)
 
     assert result.source_id == "knbs_cpi"
-    assert result.content == b"fake-xlsx-bytes"
+    assert result.content == b"PK\\x03\\x04fake-xlsx-bytes"
     assert result.metadata["declared_format"] == "xlsx"
 
 

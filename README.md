@@ -1,80 +1,102 @@
-# KNBS/CBK Open Economic Data Pipeline
+# KNBS / CBK Open Economic Data Pipeline
 
-An open-data pipeline that ingests Kenyan economic indicators — CBK FX
-rates, CBK policy rates, KNBS CPI/inflation — cleans and validates them
-into a shared tidy schema, and builds a queryable star schema on top with
-dbt.
+A reproducible data engineering project that ingests Kenyan macroeconomic indicators from the Central Bank of Kenya (CBK) and Kenya National Bureau of Statistics (KNBS), validates and standardizes observations, loads PostgreSQL, and builds dbt marts.
 
-## Status
+## Local architecture
 
-- **Ingestion**: working end-to-end for `cbk_fx_rates` (Frankfurter/CBK
-  JSON API), `cbk_key_rates` (HTML scrape), `knbs_cpi` (Excel bulletin).
-  `knbs_gdp_quarterly` is registered but has no cleaner yet.
-- **Transformation, validation, warehouse load**: working end-to-end,
-  covered by tests running against SQLite (no live Postgres needed to
-  verify logic).
-- **dbt marts**: `dim_time`, `dim_indicator`, `fct_economic_indicators`
-  defined; not yet run against a live warehouse in this environment (no
-  Postgres available where this was built — see Quickstart to run it
-  yourself).
-- **Orchestration**: three Airflow DAGs (`cbk_daily_ingestion`,
-  `knbs_bulletin_ingestion`, `warehouse_refresh`) — untested against a
-  live Airflow instance, same reason as above.
-- **Observability**: freshness/failure tracking and alerting implemented
-  and tested against SQLite.
+- PostgreSQL 16: staging, revision history and analytics schemas.
+- Redis 7: API/query cache and invalidation.
+- Python 3.12: extraction, raw artifact storage, validation and warehouse loading.
+- dbt Core + dbt-postgres: analytical models and tests.
+- Apache Airflow 2.10: optional local orchestration profile.
+- FastAPI: optional query API profile.
 
-## Quickstart
+The default Compose profile starts PostgreSQL, Redis and a repeatable database-bootstrap job. Pipeline, API and Airflow are opt-in so developers can test each layer without accidentally triggering live source downloads.
 
-```bash
-cp .env.example .env
-docker compose up -d postgres
+## Quick start (PowerShell)
 
-pip install -e ".[dev]"
+    Copy-Item .env.example .env
+    docker compose up -d
+    docker compose ps
 
-python -m knbs_cbk_pipeline.ingestion.runner
-python -m knbs_cbk_pipeline.transformation.runner
+The db-bootstrap service applies schemas and the PostgreSQL search path on every Compose startup, including when reusing an existing data volume.
 
-cd dbt && dbt deps && dbt run --profiles-dir . && dbt test --profiles-dir .
-```
+Install locally:
 
-Or, once Postgres is up: `./scripts/run_local.sh` does all of the above.
+    py -3.12 -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install --upgrade pip
+    pip install -e ".[dev,analytics,api]"
 
-Query the result:
-```sql
-select * from marts.fct_economic_indicators
-where indicator_category = 'exchange_rate'
-order by period_date desc
-limit 20;
-```
+Run the complete one-shot pipeline in Docker:
 
-## Running tests
+    docker compose --profile pipeline run --rm pipeline
 
-```bash
-pip install -e ".[dev]"
-pytest
-```
+Run the query API:
 
-All 15 tests run without network access or a live database — HTTP calls
-are mocked with `respx`, and warehouse logic is tested against in-memory
-SQLite using the same upsert code path Postgres uses in production.
+    docker compose --profile api up -d --build api
+    Invoke-RestMethod http://localhost:8000/health
 
-## Adding a new source
+Or run stages locally:
 
-1. Add an entry to `config/sources.yaml`.
-2. If it's a new institution (not CBK/KNBS), add an extractor in
-   `src/knbs_cbk_pipeline/ingestion/` subclassing `BaseExtractor`.
-3. Add a cleaner function in `transformation/cleaners/` that outputs the
-   shared tidy schema (`indicator_code, indicator_name, period_date,
-   value, unit, source_id`) — see `docs/architecture.md` for why this
-   matters.
-4. Register the cleaner in `transformation/runner.py`'s `_CLEANERS` dict.
-5. Nothing in `dbt/models/marts/` needs to change — new indicators just
-   start showing up in `fct_economic_indicators`.
+    python -m knbs_cbk_pipeline.ingestion.runner
+    python -m knbs_cbk_pipeline.transformation.runner
+    Set-Location dbt
+    dbt deps
+    dbt build --profiles-dir .
+    Set-Location ..
 
-## Docs
+## Airflow (optional)
 
-- [`docs/architecture.md`](docs/architecture.md) — data flow and design
-  rationale
-- [`docs/data_dictionary.md`](docs/data_dictionary.md) — every indicator
-  code, unit, and known data-quality caveat
-- [`docs/runbook.md`](docs/runbook.md) — failure triage
+    docker compose --profile orchestration up -d --build airflow
+    docker compose logs -f airflow
+
+Open http://localhost:8080. Airflow standalone creates a local admin account and prints its generated credentials in container logs. Change the password before sharing the environment. Airflow metadata is isolated in PostgreSQL database airflow; economic data remains in database kcp. The airflow-db-init helper also creates the metadata database when reusing an existing PostgreSQL volume.
+
+The Airflow image includes the project, dbt project and analytics dependencies. It loads the daily CBK DAG, monthly CPI DAG, quarterly GDP DAG and daily warehouse refresh DAG.
+
+## Database ports and credentials
+
+- Host PostgreSQL: localhost:5433
+- Container PostgreSQL: postgres:5432
+- Host Redis: localhost:6379
+- Container Redis: redis:6379
+- API: localhost:8000
+- Airflow: localhost:8080
+
+Example credentials are for local development only. Override them before exposing any service beyond localhost. Never commit .env.
+
+## Data flow
+
+KNBS / CBK → immutable raw artifacts + sidecars → source-specific cleaners → schema validation → standardized observations → PostgreSQL staging + revision history → dbt staging / dimensions / fact → analytics and API.
+
+Every raw artifact has a metadata sidecar with its source URL, fetch timestamp, content type, byte count and SHA-256 checksum. Transformations use the sidecar timestamp rather than filesystem modification time. KNBS landing pages are resolved to downloadable files and file signatures are checked before raw landing.
+
+Current observations are stored in staging.economic_indicators. Changes to a previously loaded observation are appended to staging.economic_indicator_versions with the previous value and recorded timestamp. Older replays cannot overwrite a newer current observation.
+
+## Source support and caveats
+
+| Source | Extractor | Cleaner | Notes |
+|---|---|---|---|
+| CBK FX rates | JSON API | Yes | Frankfurter CBK provider |
+| CBK key rates | HTML | Yes | Parses displayed observation dates when present |
+| KNBS CPI | Landing page → XLSX | Yes | Workbook headers must remain recognizable |
+| KNBS quarterly GDP | Landing page → XLSX | Initial generic parser | Confirm workbook units and sheet layout against a current KNBS release before treating values as certified |
+
+GDP parser deliberately fails closed if it cannot recognize a quarter and GDP value column. Its unit label is provisional and must be confirmed against source workbook metadata. If the official landing page publishes PDF rather than XLSX, add a PDF-specific extraction/cleaning adapter rather than bypassing file validation.
+
+## Tests and quality checks
+
+    ruff check .
+    pytest -q
+
+CI runs linting, unit/integration tests, PostgreSQL connectivity, dbt dependency resolution and dbt build/tests. GitHub Actions must have available runner capacity for these checks to execute.
+
+## Operational notes
+
+- Ingestion and transformation commands return non-zero when a source fails.
+- Source failures are recorded individually so Airflow can retry failed tasks.
+- Freshness metrics use each source's configured SLA rather than a single global threshold.
+- Raw artifacts are retained for replay; do not delete raw data before validating warehouse loads.
+- docker compose down -v deletes local PostgreSQL and Redis volumes. Use only when intentionally resetting local state.
+- This is an open-data pipeline, not an official publication or statistical authority. Preserve source provenance and review source corrections before downstream use.

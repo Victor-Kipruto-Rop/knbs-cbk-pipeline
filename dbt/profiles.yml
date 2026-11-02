@@ -4,7 +4,7 @@ knbs_cbk_pipeline:
     dev:
       type: postgres
       host: "{{ env_var('KCP_DB_HOST', 'localhost') }}"
-      port: "{{ env_var('KCP_DB_PORT', '5432') | int }}"
+      port: "{{ env_var('KCP_DB_PORT', '5433') | int }}"
       user: "{{ env_var('KCP_DB_USER', 'kcp') }}"
       password: "{{ env_var('KCP_DB_PASSWORD', 'kcp') }}"
       dbname: "{{ env_var('KCP_DB_NAME', 'kcp') }}"

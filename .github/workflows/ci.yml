@@ -1,11 +1,12 @@
 name: CI
-
 on:
   push:
+    branches: ["**"]
   pull_request:
-
+permissions:
+  contents: read
 jobs:
-  test:
+  quality:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -14,10 +15,23 @@ jobs:
           POSTGRES_USER: kcp
           POSTGRES_PASSWORD: kcp
           POSTGRES_DB: kcp
-        ports: ['5432:5432']
+        ports: ["5432:5432"]
         options: >-
-          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+          --health-cmd "pg_isready -U kcp -d kcp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     env:
+      KCP_DATABASE_URL: postgresql+psycopg2://kcp:kcp@localhost:5432/kcp
+      KCP_REDIS_URL: redis://localhost:6379/0
       KCP_DB_HOST: localhost
       KCP_DB_PORT: 5432
       KCP_DB_USER: kcp
@@ -25,29 +39,26 @@ jobs:
       KCP_DB_NAME: kcp
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Install dependencies
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          pip install dbt-core dbt-postgres
-      - name: Wait for Postgres
-        run: |
-          until pg_isready -h localhost -p 5432 -U kcp; do sleep 1; done
-        env:
-          PGPASSWORD: ${{ secrets.PGPASSWORD || 'kcp' }}
-      - name: Create DB indexes
-        run: psql -h localhost -p 5432 -U kcp -d kcp -f scripts/create_indexes.sql
-        env:
-          PGPASSWORD: kcp
-      - name: Run tests
+          pip install -e ".[dev,analytics,api]"
+      - name: Lint
+        run: ruff check .
+      - name: Unit and integration tests
         run: pytest -q
-      - name: Run dbt
+      - name: Initialize PostgreSQL schemas and search path
+        run: |
+          PGPASSWORD=kcp psql -h localhost -p 5432 -U kcp -d kcp -c "CREATE SCHEMA IF NOT EXISTS staging; CREATE SCHEMA IF NOT EXISTS marts; ALTER ROLE kcp SET search_path TO staging,marts,public;"
+          python -c "from knbs_cbk_pipeline.warehouse.loaders.postgres_loader import ensure_schema, get_engine; ensure_schema(get_engine())"
+      - name: Verify PostgreSQL connectivity
+        run: python -c "from sqlalchemy import create_engine,text; e=create_engine('$KCP_DATABASE_URL'); e.connect().execute(text('select 1')); print('PostgreSQL OK')"
+      - name: dbt dependency resolution and build
         working-directory: dbt
         run: |
-          pip install dbt-core dbt-postgres
           dbt deps
-          dbt run --profiles-dir .
-          dbt test --profiles-dir .
+          dbt build --profiles-dir .
