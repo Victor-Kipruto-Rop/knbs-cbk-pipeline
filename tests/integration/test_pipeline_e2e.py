@@ -59,7 +59,7 @@ sources:
     respx.get("https://www.knbs.or.ke/download/consumer-price-index-cpi/").mock(
         return_value=httpx.Response(
             200,
-            content=b"fake-xlsx-bytes",
+            content=b"PK\\x03\\x04fake-xlsx-bytes",
             headers={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
         )
     )

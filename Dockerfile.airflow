@@ -4,5 +4,5 @@ WORKDIR /opt/airflow/project
 COPY --chown=airflow:root pyproject.toml README.md ./
 COPY --chown=airflow:root config/ ./config/
 COPY --chown=airflow:root src/ ./src/
-RUN pip install --no-cache-dir ".[orchestration]"
+RUN pip install --no-cache-dir .
 ENV PYTHONPATH=/opt/airflow/project:/opt/airflow/project/src
