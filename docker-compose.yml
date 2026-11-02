@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: kcp
       POSTGRES_DB: kcp
     ports:
-      - "5433:5432"
+      - "${KCP_HOST_DB_PORT:-5433}:5432"
     volumes:
       - kcp_pgdata:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
@@ -15,31 +15,78 @@ services:
       test: ["CMD-SHELL", "pg_isready -U kcp -d kcp"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: kcp_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${KCP_HOST_REDIS_PORT:-6379}:6379"
+    volumes:
+      - kcp_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
 
   pipeline:
+    profiles: ["pipeline"]
     build: .
     container_name: kcp_pipeline
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       KCP_DATABASE_URL: postgresql+psycopg2://kcp:kcp@postgres:5432/kcp
       KCP_REDIS_URL: redis://redis:6379/0
+      KCP_DB_HOST: postgres
+      KCP_DB_PORT: 5432
+      KCP_DB_USER: kcp
+      KCP_DB_PASSWORD: kcp
+      KCP_DB_NAME: kcp
     volumes:
       - ./data:/app/data
-    command: ["python", "-m", "knbs_cbk_pipeline.ingestion.runner"]
+    command: ["python", "-m", "knbs_cbk_pipeline.pipeline"]
+    restart: "no"
 
-  redis:
-    image: redis:7
-    container_name: kcp_redis
+  airflow:
+    profiles: ["orchestration"]
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: kcp_airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://kcp:kcp@postgres:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "False"
+      KCP_DATABASE_URL: postgresql+psycopg2://kcp:kcp@postgres:5432/kcp
+      KCP_REDIS_URL: redis://redis:6379/0
+      KCP_DB_HOST: postgres
+      KCP_DB_PORT: 5432
+      KCP_DB_USER: kcp
+      KCP_DB_PASSWORD: kcp
+      KCP_DB_NAME: kcp
     ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 3
+      - "8080:8080"
+    volumes:
+      - ./src/knbs_cbk_pipeline/orchestration/dags:/opt/airflow/dags:ro
+      - ./data:/opt/airflow/data
+    command: ["airflow", "standalone"]
+    restart: unless-stopped
 
 volumes:
   kcp_pgdata:
+  kcp_redisdata:

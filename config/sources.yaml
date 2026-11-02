@@ -1,66 +1,48 @@
-# Registry of all KNBS/CBK sources the pipeline knows how to ingest.
-# Adding a new dataset should mean adding an entry here + a small parser,
-# not writing a new one-off script.
-
+# Official source landing pages. KNBS pages are resolved to real files by KNBSExtractor.
 sources:
   - id: cbk_fx_rates
     owner: cbk
-    description: >
-      Daily indicative foreign exchange rates published by the Central Bank
-      of Kenya. Served via the Frankfurter open exchange-rate API, which
-      mirrors CBK as a named data provider (no key required).
+    description: Daily indicative USD/KES and other CBK provider exchange rates via Frankfurter.
     extractor: cbk_extractor
     fetch_mode: api_json
     endpoint: "https://api.frankfurter.dev/v2/latest"
-    params:
-      providers: CBK
-      base: USD
-    schedule: "0 6 * * *"        # daily 06:00
+    params: {providers: CBK, base: USD}
+    schedule: "0 6 * * *"
     format: json
     schema_version: 1
     freshness_sla_hours: 30
 
   - id: cbk_key_rates
     owner: cbk
-    description: >
-      Key policy rates published on the CBK homepage widget: Central Bank
-      Rate, Inter-Bank Rate, 91-Day T-Bill, Inflation Rate, Lending Rate,
-      Savings Rate, Deposit Rate, KBRR. Sourced via HTML table scrape since
-      CBK does not expose these as a structured API.
+    description: Key monetary and lending rates displayed by the Central Bank of Kenya.
     extractor: cbk_extractor
     fetch_mode: html_scrape
     endpoint: "https://www.centralbank.go.ke/"
-    schedule: "0 6 * * *"        # daily 06:00
+    schedule: "0 6 * * *"
     format: html
     schema_version: 1
     freshness_sla_hours: 48
-    notes: >
-      Fragile by nature (page markup can change without notice) — this is
-      why observability/schema drift checks exist as a first-class module,
-      not an afterthought.
 
   - id: knbs_cpi
     owner: knbs
-    description: >
-      Monthly Consumer Price Index (CPI) and inflation bulletin, published
-      by KNBS as a downloadable Excel workbook.
+    description: Monthly Consumer Price Index and annual inflation workbook.
     extractor: knbs_extractor
     fetch_mode: file_download
     endpoint: "https://www.knbs.or.ke/download/consumer-price-index-cpi/"
-    schedule: "0 7 15 * *"       # monthly, 15th at 07:00 (KNBS publishes mid-month)
+    download_link_keywords: ["consumer price index", "cpi", "inflation"]
+    schedule: "0 7 15 * *"
     format: xlsx
     schema_version: 1
-    freshness_sla_hours: 720     # ~30 days, monthly cadence
+    freshness_sla_hours: 720
 
   - id: knbs_gdp_quarterly
     owner: knbs
-    description: >
-      Quarterly GDP report published by KNBS as a downloadable PDF/Excel
-      release.
+    description: Quarterly GDP release. Parser requires recognizable quarter and GDP value columns.
     extractor: knbs_extractor
     fetch_mode: file_download
     endpoint: "https://www.knbs.or.ke/download/quarterly-gross-domestic-product-report/"
-    schedule: "0 7 1 1,4,7,10 *" # quarterly
+    download_link_keywords: ["quarterly gross domestic product", "quarterly gdp", "gdp report"]
+    schedule: "0 7 1 1,4,7,10 *"
     format: xlsx
     schema_version: 1
-    freshness_sla_hours: 2160    # ~90 days
+    freshness_sla_hours: 2160

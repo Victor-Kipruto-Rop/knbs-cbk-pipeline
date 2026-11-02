@@ -1,80 +1,87 @@
-# KNBS/CBK Open Economic Data Pipeline
+# KNBS / CBK Open Economic Data Pipeline
 
-An open-data pipeline that ingests Kenyan economic indicators — CBK FX
-rates, CBK policy rates, KNBS CPI/inflation — cleans and validates them
-into a shared tidy schema, and builds a queryable star schema on top with
-dbt.
+A reproducible data engineering project that ingests Kenyan macroeconomic indicators from the Central Bank of Kenya (CBK) and Kenya National Bureau of Statistics (KNBS), validates and standardizes observations, loads PostgreSQL, and builds dbt marts.
 
-## Status
+## Local architecture
 
-- **Ingestion**: working end-to-end for `cbk_fx_rates` (Frankfurter/CBK
-  JSON API), `cbk_key_rates` (HTML scrape), `knbs_cpi` (Excel bulletin).
-  `knbs_gdp_quarterly` is registered but has no cleaner yet.
-- **Transformation, validation, warehouse load**: working end-to-end,
-  covered by tests running against SQLite (no live Postgres needed to
-  verify logic).
-- **dbt marts**: `dim_time`, `dim_indicator`, `fct_economic_indicators`
-  defined; not yet run against a live warehouse in this environment (no
-  Postgres available where this was built — see Quickstart to run it
-  yourself).
-- **Orchestration**: three Airflow DAGs (`cbk_daily_ingestion`,
-  `knbs_bulletin_ingestion`, `warehouse_refresh`) — untested against a
-  live Airflow instance, same reason as above.
-- **Observability**: freshness/failure tracking and alerting implemented
-  and tested against SQLite.
+- PostgreSQL 16: staging and analytics schemas.
+- Redis 7: API/query cache and invalidation.
+- Python 3.12: extraction, raw artifact storage, validation and warehouse loading.
+- dbt Core + dbt-postgres: analytical models and tests.
+- Apache Airflow 2.10: optional local orchestration profile.
 
-## Quickstart
+The default Compose profile starts only stateful dependencies. Pipeline and Airflow are opt-in so developers can test each layer without accidentally triggering live source downloads.
 
-```bash
-cp .env.example .env
-docker compose up -d postgres
+## Quick start (PowerShell)
 
-pip install -e ".[dev]"
+    Copy-Item .env.example .env
+    docker compose up -d postgres redis
+    docker compose ps
 
-python -m knbs_cbk_pipeline.ingestion.runner
-python -m knbs_cbk_pipeline.transformation.runner
+Install locally:
 
-cd dbt && dbt deps && dbt run --profiles-dir . && dbt test --profiles-dir .
-```
+    py -3.12 -m venv .venv
+    .\.venv\Scripts\Activate.ps1
+    python -m pip install --upgrade pip
+    pip install -e ".[dev,analytics]"
 
-Or, once Postgres is up: `./scripts/run_local.sh` does all of the above.
+Run the complete one-shot pipeline in Docker:
 
-Query the result:
-```sql
-select * from marts.fct_economic_indicators
-where indicator_category = 'exchange_rate'
-order by period_date desc
-limit 20;
-```
+    docker compose --profile pipeline run --rm pipeline
 
-## Running tests
+Or run stages locally:
 
-```bash
-pip install -e ".[dev]"
-pytest
-```
+    python -m knbs_cbk_pipeline.ingestion.runner
+    python -m knbs_cbk_pipeline.transformation.runner
+    Set-Location dbt
+    dbt deps
+    dbt build --profiles-dir .
+    Set-Location ..
 
-All 15 tests run without network access or a live database — HTTP calls
-are mocked with `respx`, and warehouse logic is tested against in-memory
-SQLite using the same upsert code path Postgres uses in production.
+## Airflow (optional)
 
-## Adding a new source
+    docker compose --profile orchestration up -d --build airflow
+    docker compose logs -f airflow
 
-1. Add an entry to `config/sources.yaml`.
-2. If it's a new institution (not CBK/KNBS), add an extractor in
-   `src/knbs_cbk_pipeline/ingestion/` subclassing `BaseExtractor`.
-3. Add a cleaner function in `transformation/cleaners/` that outputs the
-   shared tidy schema (`indicator_code, indicator_name, period_date,
-   value, unit, source_id`) — see `docs/architecture.md` for why this
-   matters.
-4. Register the cleaner in `transformation/runner.py`'s `_CLEANERS` dict.
-5. Nothing in `dbt/models/marts/` needs to change — new indicators just
-   start showing up in `fct_economic_indicators`.
+Open http://localhost:8080. Airflow standalone creates a local admin account and prints its generated credentials in container logs. Change the password before sharing the environment. Airflow metadata is isolated in PostgreSQL database airflow; economic data remains in database kcp.
 
-## Docs
+## Database ports and credentials
 
-- [`docs/architecture.md`](docs/architecture.md) — data flow and design
-  rationale
-- [`docs/data_dictionary.md`](docs/data_dictionary.md) — every indicator
-  code, unit, and known data-quality caveat
-- [`docs/runbook.md`](docs/runbook.md) — failure triage
+- Host PostgreSQL: localhost:5433
+- Container PostgreSQL: postgres:5432
+- Host Redis: localhost:6379
+- Container Redis: redis:6379
+
+Example credentials are for local development only. Override them before exposing any service beyond localhost. Never commit .env.
+
+## Data flow
+
+KNBS / CBK → immutable raw artifacts + sidecars → source-specific cleaners → schema validation → standardized observations → PostgreSQL staging → dbt staging / dimensions / fact → analytics.
+
+Every raw artifact has a metadata sidecar with its source URL, fetch timestamp, content type and byte count. Transformations use the sidecar timestamp rather than filesystem modification time. KNBS landing pages are resolved to downloadable files and file signatures are checked before raw landing.
+
+## Source support and caveats
+
+| Source | Extractor | Cleaner | Notes |
+|---|---|---|---|
+| CBK FX rates | JSON API | Yes | Frankfurter CBK provider |
+| CBK key rates | HTML | Yes | Current widget layout may change |
+| KNBS CPI | Landing page → XLSX | Yes | Workbook headers must remain recognizable |
+| KNBS quarterly GDP | Landing page → XLSX | Initial generic parser | Confirm workbook units and sheet layout against a current KNBS release before treating values as certified |
+
+GDP parser deliberately fails closed if it cannot recognize a quarter and GDP value column. Its unit label is provisional and must be confirmed against source workbook metadata.
+
+## Tests and quality checks
+
+    ruff check .
+    pytest -q
+
+CI runs linting, unit/integration tests, PostgreSQL connectivity, dbt dependency resolution and dbt build/tests.
+
+## Operational notes
+
+- Ingestion and transformation commands return non-zero when a source fails.
+- Source failures are recorded individually so Airflow can retry failed tasks.
+- Raw artifacts are retained for replay; do not delete raw data before validating warehouse loads.
+- docker compose down -v deletes local PostgreSQL and Redis volumes. Use only when intentionally resetting local state.
+- This is an open-data pipeline, not an official publication or statistical authority. Preserve source provenance and review source corrections before downstream use.
